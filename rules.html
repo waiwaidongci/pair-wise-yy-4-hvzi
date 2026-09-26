@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>借展规则 · 水下考古潜水记录</title>
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <header id="topbar">
+    <div><h1>借展规则</h1><div class="muted">本页内容由 js/rules.js 渲染，规则只维护这一处。</div></div>
+    <nav id="nav"></nav>
+  </header>
+  <main style="padding:16px; max-width:900px">
+    <section class="panel">
+      <h2>保存等级</h2>
+      <div id="grades"></div>
+      <h2>借展单位</h2>
+      <div id="borrowers"></div>
+      <h2>巡展站与展柜</h2>
+      <div id="stations"></div>
+      <h2>运输条件</h2>
+      <div id="transports"></div>
+      <h2>排期规则</h2>
+      <div id="rules"></div>
+    </section>
+  </main>
+  <script src="js/rules.js"></script>
+  <script src="js/nav.js"></script>
+  <script>
+    const R = LOAN_RULES;
+    const list = items => "<ul>" + items.map(i => "<li>" + i + "</li>").join("") + "</ul>";
+
+    document.getElementById("grades").innerHTML = R.RELIC_GRADES.map(g =>
+      '<div class="rule-table"><b>' + g.label + '</b> <span class="pill ' + (g.eligible ? "ok" : "bad") + '">' +
+      (g.eligible ? "可出借" : "不得外借") + "</span><div class=\"muted\">" + g.transport + "</div></div>"
+    ).join("");
+
+    document.getElementById("borrowers").innerHTML =
+      '<div class="rule-table">' + list(R.BORROWERS.map(b => b.id + " · " + b.name)) + "</div>";
+
+    document.getElementById("stations").innerHTML = R.STATIONS.map(s =>
+      '<div class="rule-table"><b>' + s.city + " · " + s.venue + '</b><div class="muted">展柜：' +
+      s.cases.join("、") + "</div></div>"
+    ).join("");
+
+    document.getElementById("transports").innerHTML =
+      '<div class="rule-table">' + list(R.TRANSPORTS.map(t => t.label)) +
+      '<div class="muted">脆弱遗物仅限恒温恒湿运输。</div></div>';
+
+    document.getElementById("rules").innerHTML =
+      '<div class="rule-table"><h3>待处理</h3>' + list(R.RULES.pending) + "</div>" +
+      '<div class="rule-table"><h3>撞期判定</h3>' + list(R.RULES.conflict) + "</div>" +
+      '<div class="rule-table"><h3>启运后调整</h3>' + list(R.RULES.afterDeparture) + "</div>";
+  </script>
+</body>
+</html>

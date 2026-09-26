@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>借展排期 · 水下考古潜水记录</title>
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <header id="topbar">
+    <div><h1>借展排期</h1><div class="muted">排入巡展、撞期拦截、待处理、启运留档与押运安排。规则详见「借展规则」页。</div></div>
+    <nav id="nav"></nav>
+  </header>
+  <main class="loan-grid">
+    <section class="stack">
+      <div class="panel">
+        <h2>排入借展</h2>
+        <form id="loanForm">
+          <label>遗物（馆藏号 · 编号 · 保存等级）</label>
+          <select name="markId" required></select>
+          <label>借展单位</label>
+          <select name="borrowerId" required></select>
+          <label>巡展站</label>
+          <select name="stationId" required></select>
+          <label>展柜</label>
+          <select name="caseNo" required></select>
+          <div class="toolbar">
+            <div><label>起展日期</label><input type="date" name="start" required></div>
+            <div><label>归还日期</label><input type="date" name="end" required></div>
+          </div>
+          <label>运输条件</label>
+          <select name="transport" required></select>
+          <label>押运人</label>
+          <input name="escort" placeholder="例如周海澜" required>
+          <div id="eligHint" class="hint">选择遗物后在此提示出借资格。</div>
+          <div class="toolbar" style="margin-top:10px"><button>提交排期</button></div>
+          <div id="formMsg" class="msg"></div>
+        </form>
+      </div>
+      <div class="panel">
+        <h2>待处理</h2>
+        <div class="muted">保存不稳或交接签字缺失的遗物留在这里，补齐后可重新检查。</div>
+        <div id="pendingList" style="margin-top:8px"></div>
+      </div>
+      <div class="panel">
+        <h2>借展档案</h2>
+        <div class="toolbar">
+          <select id="statusFilter">
+            <option value="">全部状态</option>
+            <option value="scheduled">已排期</option>
+            <option value="departed">已启运</option>
+            <option value="returned">已归还</option>
+          </select>
+          <select id="stationFilter"><option value="">全部巡展站</option></select>
+        </div>
+        <div id="loanList"></div>
+      </div>
+    </section>
+    <aside class="stack">
+      <div class="panel">
+        <h2>押运人视图</h2>
+        <input id="escortName" placeholder="输入押运人姓名，查看当前生效安排">
+        <div id="escortList" style="margin-top:8px"></div>
+      </div>
+      <div class="panel">
+        <h2>展柜档期</h2>
+        <select id="calStation"></select>
+        <div id="calendar" style="margin-top:8px"></div>
+      </div>
+    </aside>
+  </main>
+  <script src="js/rules.js"></script>
+  <script src="js/store.js"></script>
+  <script src="js/nav.js"></script>
+  <script>
+    const R = LOAN_RULES;
+    const $ = id => document.getElementById(id);
+    const loanForm = $("loanForm");
+    const marks = STORE.getMarks();
+
+    const today = new Date().toISOString().slice(0, 10);
+    const plus14 = new Date(Date.now() + 14 * 864e5).toISOString().slice(0, 10);
+
+    // 遗物信息实时从档案读取，标记页补齐签字/定级后这里立即生效
+    function markOf(loan) { return STORE.getMarks().find(m => m.id === loan.markId); }
+    function relicLabel(mark) { return mark ? (mark.accession || "无馆藏号") + " · " + mark.code : "（遗物已删除）"; }
+    function borrowerName(id) { const b = R.BORROWERS.find(b => b.id === id); return b ? b.name : id; }
+    function stationOf(id) { return R.STATIONS.find(s => s.id === id); }
+    function stationLabel(id) { const s = stationOf(id); return s ? s.city + " · " + s.venue : id; }
+    function transportLabel(v) { const t = R.TRANSPORTS.find(t => t.value === v); return t ? t.label : v; }
+    function statusLabel(v) { const s = R.RULES.statuses.find(s => s.value === v); return s ? s.label : v; }
+
+    // ---- 表单选项 ----
+    loanForm.markId.innerHTML = marks.map(m =>
+      '<option value="' + m.id + '">' + relicLabel(m) + "（" + R.gradeLabel(m.grade) + "）</option>"
+    ).join("");
+    loanForm.borrowerId.innerHTML = R.BORROWERS.map(b => '<option value="' + b.id + '">' + b.name + "</option>").join("");
+    loanForm.stationId.innerHTML = R.STATIONS.map(s => '<option value="' + s.id + '">' + s.city + " · " + s.venue + "</option>").join("");
+    loanForm.transport.innerHTML = R.TRANSPORTS.map(t => '<option value="' + t.value + '">' + t.label + "</option>").join("");
+    loanForm.start.value = today;
+    loanForm.end.value = plus14;
+
+    function fillCases(selectEl, stationId, selected) {
+      const s = stationOf(stationId);
+      selectEl.innerHTML = (s ? s.cases : []).map(c =>
+        '<option value="' + c + '"' + (c === selected ? " selected" : "") + ">" + c + "</option>"
+      ).join("");
+    }
+    fillCases(loanForm.caseNo, loanForm.stationId.value);
+    loanForm.stationId.onchange = () => fillCases(loanForm.caseNo, loanForm.stationId.value);
+
+    // ---- 出借资格提示 ----
+    function showEligibility() {
+      const mark = STORE.getMarks().find(m => m.id === loanForm.markId.value);
+      const res = R.checkEligibility(mark);
+      const hint = $("eligHint");
+      if (res.ok) {
+        const extra = mark.grade === "fragile" ? "；脆弱遗物仅限恒温恒湿运输" : "";
+        hint.innerHTML = "✅ 可出借" + extra;
+      } else {
+        hint.innerHTML = "⛔ 将留在待处理：" + res.reasons.join("；");
+      }
+    }
+    loanForm.markId.onchange = showEligibility;
+    showEligibility();
+
+    function formMsg(text, ok) {
+      const el = $("formMsg");
+      el.textContent = text || "";
+      el.className = "msg " + (ok ? "ok" : "error");
+    }
+
+    // ---- 提交排期 ----
+    loanForm.onsubmit = event => {
+      event.preventDefault();
+      const data = Object.fromEntries(new FormData(loanForm).entries());
+      const mark = STORE.getMarks().find(m => m.id === data.markId);
+      if (data.end < data.start) { formMsg("归还日期不能早于起展日期"); return; }
+
+      const loan = {
+        markId: data.markId,
+        accession: mark ? mark.accession : "",
+        borrowerId: data.borrowerId,
+        stationId: data.stationId,
+        caseNo: data.caseNo,
+        start: data.start,
+        end: data.end,
+        transport: data.transport,
+        escort: data.escort.trim(),
+        handover: null,
+        revisions: [],
+        createdAt: new Date().toISOString()
+      };
+
+      // 1) 保存不稳或签字缺失 → 留在待处理
+      const elig = R.checkEligibility(mark);
+      if (!elig.ok) {
+        loan.status = "pending";
+        loan.pendingReasons = elig.reasons;
+        STORE.addLoan(loan);
+        formMsg("已留在待处理：" + elig.reasons.join("；"), true);
+        renderAll();
+        return;
+      }
+      // 2) 运输条件
+      const trans = R.checkTransport(mark, data.transport);
+      if (!trans.ok) { formMsg(trans.reasons.join("；")); return; }
+      // 3) 同一展柜日期相撞 → 不排
+      const conflict = R.findConflict(STORE.getLoans(), loan);
+      if (conflict) {
+        formMsg("展柜 " + data.caseNo + " 在 " + conflict.start + " ~ " + conflict.end + " 已被「" + relicLabel(markOf(conflict)) + "」占用，日期相撞不予排期");
+        return;
+      }
+      loan.status = "scheduled";
+      STORE.addLoan(loan);
+      formMsg("已排期：" + relicLabel(mark) + " → " + stationLabel(loan.stationId) + " / " + loan.caseNo, true);
+      renderAll();
+    };
+
+    // ---- 待处理 ----
+    function renderPending() {
+      const list = STORE.getLoans().filter(l => l.status === "pending");
+      $("pendingList").innerHTML = list.length ? list.map(l => {
+        const mark = markOf(l);
+        return '<div class="card"><span class="badge b-pending">待处理</span> <b>' + relicLabel(mark) + '</b>' +
+          '<div class="reasons">' + (l.pendingReasons || []).join("；") + '</div>' +
+          '<div class="muted">拟借：' + borrowerName(l.borrowerId) + ' · ' + stationLabel(l.stationId) + ' / ' + l.caseNo + ' · ' + l.start + ' ~ ' + l.end + '</div>' +
+          '<div class="row"><button class="tiny keep" data-recheck="' + l.id + '">重新检查</button>' +
+          '<button class="tiny secondary keep" data-del="' + l.id + '">删除</button>' +
+          '<span class="msg keep" id="msg-' + l.id + '"></span></div></div>';
+      }).join("") : '<div class="muted">暂无待处理遗物。</div>';
+      $("pendingList").querySelectorAll("[data-recheck]").forEach(btn => btn.onclick = () => recheck(btn.dataset.recheck));
+      $("pendingList").querySelectorAll("[data-del]").forEach(btn => btn.onclick = () => {
+        if (confirm("删除这条待处理记录？")) { STORE.removeLoan(btn.dataset.del); renderAll(); }
+      });
+    }
+    function recheck(id) {
+      const loan = STORE.getLoans().find(l => l.id === id);
+      const mark = markOf(loan);
+      const msg = $("msg-" + id);
+      const elig = R.checkEligibility(mark);
+      if (!elig.ok) {
+        STORE.patchLoan(id, { pendingReasons: elig.reasons });
+        msg.textContent = "仍不符合：" + elig.reasons.join("；");
+        msg.className = "msg error keep";
+        renderPending();
+        return;
+      }
+      const trans = R.checkTransport(mark, loan.transport);
+      if (!trans.ok) {
+        msg.textContent = trans.reasons.join("；") + "，请删除后重新提交";
+        msg.className = "msg error keep";
+        return;
+      }
+      const conflict = R.findConflict(STORE.getLoans(), loan);
+      if (conflict) {
+        msg.textContent = "展柜 " + loan.caseNo + " 档期相撞（" + conflict.start + " ~ " + conflict.end + "），请删除后改期重新提交";
+        msg.className = "msg error keep";
+        return;
+      }
+      STORE.patchLoan(id, { status: "scheduled", pendingReasons: [] });
+      renderAll();
+    }
+
+    // ---- 借展档案（已排期 / 已启运 / 已归还）----
+    function renderLoans() {
+      const sf = $("statusFilter").value, stf = $("stationFilter").value;
+      const list = STORE.getLoans()
+        .filter(l => l.status !== "pending")
+        .filter(l => !sf || l.status === sf)
+        .filter(l => !stf || l.stationId === stf)
+        .sort((a, b) => a.start < b.start ? -1 : 1);
+      $("loanList").innerHTML = list.length ? list.map(loanCard).join("") : '<div class="muted">暂无借展记录。</div>';
+
+      $("loanList").querySelectorAll("[data-depart]").forEach(btn => btn.onclick = () => {
+        if (!confirm("确认启运？原交接记录将冻结留档，之后只能调整归还日或展柜。")) return;
+        const loan = STORE.getLoans().find(l => l.id === btn.dataset.depart);
+        const mark = markOf(loan);
+        STORE.patchLoan(loan.id, {
+          status: "departed",
+          handover: {
+            at: new Date().toISOString(),
+            relic: relicLabel(mark),
+            borrower: borrowerName(loan.borrowerId),
+            station: stationLabel(loan.stationId),
+            caseNo: loan.caseNo,
+            start: loan.start,
+            end: loan.end,
+            transport: transportLabel(loan.transport),
+            escort: loan.escort
+          }
+        });
+        renderAll();
+      });
+      $("loanList").querySelectorAll("[data-return]").forEach(btn => btn.onclick = () => {
+        if (!confirm("确认归还入库？展柜档期随之释放。")) return;
+        STORE.patchLoan(btn.dataset.return, { status: "returned", returnedAt: new Date().toISOString() });
+        renderAll();
+      });
+      $("loanList").querySelectorAll("[data-del]").forEach(btn => btn.onclick = () => {
+        if (confirm("删除这条排期记录？")) { STORE.removeLoan(btn.dataset.del); renderAll(); }
+      });
+      $("loanList").querySelectorAll("[data-adjust]").forEach(btn => btn.onclick = () => adjust(btn.dataset.adjust));
+    }
+
+    function loanCard(l) {
+      const mark = markOf(l);
+      let html = '<div class="card"><span class="badge b-' + l.status + '">' + statusLabel(l.status) + '</span> <b>' + relicLabel(mark) + '</b>' +
+        '<div class="muted">' + borrowerName(l.borrowerId) + ' · ' + stationLabel(l.stationId) + ' / ' + l.caseNo + '</div>' +
+        '<div>展期 ' + l.start + ' ~ ' + l.end + ' · ' + transportLabel(l.transport) + ' · 押运人 ' + l.escort + '</div>';
+
+      if (l.status === "scheduled") {
+        html += '<div class="row"><button class="tiny keep" data-depart="' + l.id + '">确认启运</button>' +
+          '<button class="tiny secondary keep" data-del="' + l.id + '">删除</button></div>';
+      }
+      if (l.status === "departed") {
+        const s = stationOf(l.stationId);
+        html += '<div class="row"><div><label>归还日期</label><input type="date" id="adj-end-' + l.id + '" value="' + l.end + '" min="' + l.start + '"></div>' +
+          '<div><label>展柜</label><select id="adj-case-' + l.id + '">' + (s ? s.cases : []).map(c =>
+            '<option value="' + c + '"' + (c === l.caseNo ? " selected" : "") + ">" + c + "</option>").join("") + '</select></div>' +
+          '<button class="tiny keep" data-adjust="' + l.id + '">保存调整</button>' +
+          '<button class="tiny secondary keep" data-return="' + l.id + '">确认归还</button></div>' +
+          '<div class="msg" id="msg-' + l.id + '"></div>';
+        if (l.handover) {
+          html += '<details class="handover"><summary>原交接记录（留档）</summary><dl>' +
+            "<dt>启运时间</dt><dd>" + l.handover.at + "</dd>" +
+            "<dt>遗物</dt><dd>" + l.handover.relic + "</dd>" +
+            "<dt>借展单位</dt><dd>" + l.handover.borrower + "</dd>" +
+            "<dt>巡展站</dt><dd>" + l.handover.station + "</dd>" +
+            "<dt>展柜</dt><dd>" + l.handover.caseNo + "</dd>" +
+            "<dt>展期</dt><dd>" + l.handover.start + " ~ " + l.handover.end + "</dd>" +
+            "<dt>运输条件</dt><dd>" + l.handover.transport + "</dd>" +
+            "<dt>押运人</dt><dd>" + l.handover.escort + "</dd></dl></details>";
+        }
+        if (l.revisions && l.revisions.length) {
+          html += '<div class="muted" style="margin-top:6px">修订记录：</div>' + l.revisions.map(r =>
+            '<div class="rev">' + r.at.slice(0, 16).replace("T", " ") + " · 归还日 " + r.from.end + " → " + r.to.end +
+            (r.from.caseNo !== r.to.caseNo ? " · 展柜 " + r.from.caseNo + " → " + r.to.caseNo : "") + "</div>"
+          ).join("");
+        }
+      }
+      if (l.status === "returned" && l.returnedAt) {
+        html += '<div class="muted">归还时间：' + l.returnedAt.slice(0, 16).replace("T", " ") + "</div>";
+      }
+      return html + "</div>";
+    }
+
+    // 启运后调整：只允许归还日或展柜，原交接记录不动，追加修订记录
+    function adjust(id) {
+      const loan = STORE.getLoans().find(l => l.id === id);
+      const newEnd = $("adj-end-" + id).value;
+      const newCase = $("adj-case-" + id).value;
+      const msg = $("msg-" + id);
+      if (!newEnd || newEnd < loan.start) {
+        msg.textContent = "归还日期不能早于起展日期";
+        msg.className = "msg error";
+        return;
+      }
+      const conflict = R.findConflict(STORE.getLoans(), { id, stationId: loan.stationId, caseNo: newCase, start: loan.start, end: newEnd });
+      if (conflict) {
+        msg.textContent = "展柜 " + newCase + " 在 " + conflict.start + " ~ " + conflict.end + " 已被占用，调整未保存";
+        msg.className = "msg error";
+        return;
+      }
+      if (newEnd === loan.end && newCase === loan.caseNo) {
+        msg.textContent = "没有改动";
+        msg.className = "msg";
+        return;
+      }
+      const revisions = (loan.revisions || []).concat([{
+        at: new Date().toISOString(),
+        from: { end: loan.end, caseNo: loan.caseNo },
+        to: { end: newEnd, caseNo: newCase }
+      }]);
+      STORE.patchLoan(id, { end: newEnd, caseNo: newCase, revisions });
+      renderAll();
+    }
+
+    // ---- 押运人视图：看到当前生效的新安排 ----
+    function renderEscort() {
+      const name = $("escortName").value.trim();
+      const box = $("escortList");
+      if (!name) { box.innerHTML = '<div class="muted">输入姓名后显示其押运的借展安排。</div>'; return; }
+      const list = STORE.getLoans()
+        .filter(l => l.status !== "pending" && l.escort.includes(name))
+        .sort((a, b) => a.start < b.start ? -1 : 1);
+      box.innerHTML = list.length ? list.map(l => {
+        const changed = l.revisions && l.revisions.length;
+        return '<div class="card"><span class="badge b-' + l.status + '">' + statusLabel(l.status) + '</span> <b>' + relicLabel(markOf(l)) + '</b>' +
+          '<div>展期 ' + l.start + ' ~ ' + l.end + ' · ' + stationLabel(l.stationId) + ' / ' + l.caseNo + '</div>' +
+          '<div class="muted">' + borrowerName(l.borrowerId) + ' · ' + transportLabel(l.transport) + '</div>' +
+          (changed ? '<div class="pill warn">已调整 ' + l.revisions.length + ' 次，以上为当前生效安排</div>' : "") +
+          "</div>";
+      }).join("") : '<div class="muted">没有「' + name + '」的押运任务。</div>';
+    }
+    $("escortName").oninput = renderEscort;
+
+    // ---- 展柜档期 ----
+    $("calStation").innerHTML = R.STATIONS.map(s => '<option value="' + s.id + '">' + s.city + " · " + s.venue + "</option>").join("");
+    function renderCalendar() {
+      const sid = $("calStation").value;
+      const s = stationOf(sid);
+      const loans = STORE.getLoans().filter(l => l.stationId === sid && l.status !== "returned" && l.status !== "pending");
+      $("calendar").innerHTML = s.cases.map(c => {
+        const segs = loans.filter(l => l.caseNo === c).sort((a, b) => a.start < b.start ? -1 : 1);
+        return '<div class="slot"><b>展柜 ' + c + '</b>' + (segs.length ? segs.map(l =>
+          '<span class="seg">' + l.start + " ~ " + l.end + " · " + relicLabel(markOf(l)) + ' <span class="badge b-' + l.status + '">' + statusLabel(l.status) + "</span></span>"
+        ).join("") : '<span class="seg muted">空闲</span>') + "</div>";
+      }).join("");
+    }
+    $("calStation").onchange = renderCalendar;
+
+    // ---- 筛选与总渲染 ----
+    $("stationFilter").innerHTML = '<option value="">全部巡展站</option>' +
+      R.STATIONS.map(s => '<option value="' + s.id + '">' + s.city + " · " + s.venue + "</option>").join("");
+    $("statusFilter").onchange = renderLoans;
+    $("stationFilter").onchange = renderLoans;
+
+    function renderAll() {
+      renderPending();
+      renderLoans();
+      renderEscort();
+      renderCalendar();
+    }
+    renderAll();
+  </script>
+</body>
+</html>
