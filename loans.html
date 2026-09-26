@@ -1,0 +1,479 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>借展排期 · 沉船出水物巡展</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Arial, "PingFang SC", sans-serif; background: #e8f2f3; color: #183035; }
+    header { padding: 18px 24px; background: #fff; border-bottom: 1px solid #c9dadc; display: flex; justify-content: space-between; gap: 16px; align-items: center; flex-wrap: wrap; }
+    h1 { margin: 0 0 2px; font-size: 24px; }
+    h2 { margin: 4px 0 10px; font-size: 17px; }
+    h3 { margin: 12px 0 6px; font-size: 14px; color: #33515a; }
+    button { border: 0; border-radius: 8px; padding: 8px 12px; background: #1d6c78; color: #fff; font-weight: 800; cursor: pointer; }
+    button.secondary { background: #64777b; }
+    button.warn { background: #a0522d; }
+    button.tiny { padding: 4px 9px; font-size: 12px; border-radius: 6px; }
+    input, select, textarea { width: 100%; border: 1px solid #c9dadc; border-radius: 6px; padding: 8px; font: inherit; background: #fff; }
+    label { display: block; margin: 8px 0 4px; color: #5c7378; font-size: 13px; }
+    .muted { color: #5c7378; font-size: 13px; }
+    .sitenav { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+    .navlink { padding: 5px 11px; border: 1px solid #c9dadc; border-radius: 999px; font-size: 13px; color: #1d6c78; text-decoration: none; background: #f4fafa; }
+    .navlink.active { background: #1d6c78; color: #fff; border-color: #1d6c78; }
+    .wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 16px; }
+    .panel { background: #fff; border: 1px solid #c9dadc; border-radius: 8px; padding: 14px; }
+    .panel.full { grid-column: 1 / -1; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .pill { display: inline-block; padding: 2px 8px; border: 1px solid #c9dadc; border-radius: 999px; font-size: 12px; }
+    .pill.ok { background: #e8f5ec; border-color: #9bc7a6; color: #2a6b3b; }
+    .pill.hold { background: #fbeee4; border-color: #d7a06e; color: #8a4a1d; }
+    .pill.ship { background: #e6f0f7; border-color: #8fb4cf; color: #25506e; }
+    .pill.done { background: #ececec; border-color: #b9b9b9; color: #555; }
+    .relic { border: 1px solid #d7e4e5; border-radius: 8px; padding: 10px; display: grid; gap: 4px; }
+    .relic.hold { background: #fdf8f3; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
+    .loan { border: 1px solid #d7e4e5; border-radius: 8px; padding: 12px; display: grid; gap: 8px; }
+    .loan h3 { margin: 0; font-size: 15px; color: #183035; }
+    .legline { border-left: 3px solid #1d6c78; padding: 4px 0 4px 10px; margin: 4px 0; }
+    .history { border-top: 1px dashed #c9dadc; margin-top: 6px; padding-top: 6px; }
+    .msg { margin: 8px 0; padding: 9px 11px; border-radius: 8px; font-size: 13px; display: none; }
+    .msg.show { display: block; }
+    .msg.err { background: #fbeae4; border: 1px solid #d98b6b; color: #8a3318; }
+    .msg.ok { background: #e8f5ec; border: 1px solid #9bc7a6; color: #2a6b3b; }
+    .rowline { display: grid; grid-template-columns: 1.1fr 1fr 1fr 1fr 28px; gap: 6px; align-items: end; margin-bottom: 6px; }
+    .rowline .del { padding: 8px 0; }
+    #msg { white-space: pre-line; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>借展排期 · 沉船出水物巡展</h1>
+      <div class="muted">遗物挂馆藏号与保存等级后再排期；同一展柜日期相撞不排；启运后调整留档。</div>
+      <nav id="siteNav"></nav>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="panel">
+      <h2>一、遗物登记（馆藏号 / 保存等级 / 签字）</h2>
+      <div id="pending" class="msg err show" style="display:none"></div>
+      <div id="relicCards" class="cards"></div>
+      <p class="muted" style="margin-top:8px">遗物清单与点位标记同源（点位地图新增后回到本页可见）。保存等级“不稳定”或签字缺失者不进入待排选择。</p>
+    </section>
+
+    <section class="panel">
+      <h2>二、借展单位</h2>
+      <div id="borrowerList" class="cards"></div>
+      <h3>新增借展单位</h3>
+      <form id="borrowerForm">
+        <label>单位名称</label><input name="name" required placeholder="例如 宁波港口博物馆">
+        <label>运输条件确认（替代电话确认，留底可查）</label><textarea name="transport" required placeholder="温湿度、包装、车速、押运要求……"></textarea>
+        <div style="margin-top:8px"><button type="submit">新增单位</button></div>
+      </form>
+    </section>
+
+    <section class="panel">
+      <h2>三、巡展站与展柜</h2>
+      <div id="stationList" class="cards"></div>
+      <form id="stationForm">
+        <h3>新增巡展站</h3>
+        <div class="grid2">
+          <div><label>站名</label><input name="name" required placeholder="例如 宁波站"></div>
+          <div><label>场馆 / 展厅</label><input name="venue" required placeholder="例如 一号厅"></div>
+        </div>
+        <label>可用展柜（逗号分隔）</label><input name="cases" required placeholder="例如 A-01, A-02">
+        <div style="margin-top:8px"><button type="submit">新增巡展站</button></div>
+      </form>
+    </section>
+
+    <section class="panel">
+      <h2>四、新建借展排期</h2>
+      <form id="loanForm">
+        <div class="grid2">
+          <div>
+            <label>遗物（仅可排遗物）</label><select name="relicId" required></select>
+          </div>
+          <div>
+            <label>借展单位</label><select name="borrowerId" required></select>
+          </div>
+        </div>
+        <label>运输条件（来自借展单位，可补充，必须确认后才能排）</label>
+        <textarea name="transport" required></textarea>
+        <label class="muted" style="display:flex;gap:6px;align-items:flex-start;margin-top:6px">
+          <input type="checkbox" name="transportConfirmed" style="width:auto" required>
+          已按上述条件完成包装、运输与押运安排（不再以电话口头确认）
+        </label>
+        <div class="grid2">
+          <div><label>计划启运日</label><input type="date" name="shipDate" required></div>
+          <div><label>归还日</label><input type="date" name="returnDate" required></div>
+        </div>
+        <h3>巡展站安排（展柜档期相撞将整单拒绝）</h3>
+        <div id="legs"></div>
+        <button type="button" id="addLeg" class="secondary tiny">＋ 添加一站</button>
+        <div id="msg" class="msg"></div>
+        <div style="margin-top:10px"><button type="submit">提交排期</button></div>
+      </form>
+    </section>
+
+    <section class="panel full">
+      <h2>五、当前借展与启运调整</h2>
+      <div id="loanList" class="cards"></div>
+    </section>
+  </main>
+
+  <script src="nav.js"></script>
+  <script src="store.js"></script>
+  <script>
+    const Z = window.ZFL;
+    let marks = Z.loadMarks();
+    let db = Z.loadDB();
+    let editingAmendment = null;
+
+    const $ = sel => document.querySelector(sel);
+    const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+    function persist() { Z.saveDB(db); Z.saveMarks(marks); }
+
+    function render() { renderRelics(); renderBorrowers(); renderStations(); renderForm(); renderLoans(); }
+
+    /* ---------- 遗物登记 ---------- */
+    function renderRelics() {
+      const pending = [];
+      $("#relicCards").innerHTML = marks.map(m => {
+        const ext = db.relics[m.id] || {};
+        const st = Z.relicState(ext);
+        if (!st.ok) pending.push(`<b>${esc(m.code)}</b>：${st.reasons.map(esc).join("、")}`);
+        return `<div class="relic${st.ok ? "" : " hold"}">
+          <b>${esc(m.code)}</b>
+          <span class="pill ${st.ok ? "ok" : "hold"}">${st.ok ? "可排期" : "待处理"}</span>
+          <label style="margin-top:4px">馆藏号</label>
+          <input value="${esc(ext.accession || "")}" placeholder="例如 藏-2024-陶-017"
+                 onchange="setRelicField('${m.id}','accession',this.value)">
+          <label>保存等级</label>
+          <select onchange="setRelicField('${m.id}','grade',this.value)">
+            <option value="">未定级</option>
+            ${Z.GRADES.map(g => `<option value="${g.value}" ${ext.grade === g.value ? "selected" : ""}>${g.label}</option>`).join("")}
+          </select>
+          <label class="muted" style="display:flex;gap:6px;align-items:center">
+            <input type="checkbox" style="width:auto" ${ext.signed ? "checked" : ""}
+                   onchange="setRelicField('${m.id}','signed',this.checked)">
+            负责人已签字
+          </label>
+        </div>`;
+      }).join("");
+      const box = $("#pending");
+      if (pending.length) { box.style.display = "block"; box.innerHTML = "留在待处理，不予排期：<br>" + pending.join("<br>"); }
+      else box.style.display = "none";
+    }
+    window.setRelicField = (id, field, value) => {
+      db.relics[id] = Object.assign({ accession: "", grade: "", signed: false }, db.relics[id], { [field]: value });
+      persist(); render();
+    };
+
+    /* ---------- 借展单位 ---------- */
+    function renderBorrowers() {
+      $("#borrowerList").innerHTML = db.borrowers.map(b =>
+        `<div class="relic"><b>${esc(b.name)}</b><div class="muted">${esc(b.transport)}</div></div>`).join("");
+      const sel = document.querySelector("#loanForm select[name=borrowerId]");
+      if (sel) {
+        const cur = sel.value;
+        sel.innerHTML = db.borrowers.map(b => `<option value="${b.id}">${esc(b.name)}</option>`).join("");
+        sel.value = cur;
+      }
+      syncTransportText();
+    }
+    $("#borrowerForm").onsubmit = e => {
+      e.preventDefault();
+      const f = new FormData(e.target);
+      db.borrowers.push({ id: Z.uid(), name: f.get("name").trim(), transport: f.get("transport").trim() });
+      e.target.reset(); persist(); render();
+    };
+    function syncTransportText() {
+      const sel = document.querySelector("#loanForm select[name=borrowerId]");
+      const ta = document.querySelector("#loanForm textarea[name=transport]");
+      if (!sel || !ta || document.activeElement === ta) return;
+      const b = Z.borrowerById(db, sel.value);
+      if (b && !ta.value) ta.value = b.transport;
+    }
+
+    /* ---------- 巡展站 ---------- */
+    function renderStations() {
+      $("#stationList").innerHTML = db.stations.map(s =>
+        `<div class="relic"><b>${esc(s.name)}</b><div class="muted">${esc(s.venue)}</div>
+         <div>${s.cases.map(c => `<span class="pill">${esc(c)}</span> `).join("")}</div></div>`).join("");
+      rebuildLegRows();
+    }
+    $("#stationForm").onsubmit = e => {
+      e.preventDefault();
+      const f = new FormData(e.target);
+      db.stations.push({
+        id: Z.uid(), name: f.get("name").trim(), venue: f.get("venue").trim(),
+        cases: f.get("cases").split(/[,，]/).map(s => s.trim()).filter(Boolean)
+      });
+      e.target.reset(); persist(); render();
+    };
+
+    /* ---------- 新建排期：巡展站行 ---------- */
+    const legData = [];
+    function stationOptions(selId, caseId) {
+      return db.stations.map(s =>
+        `<option value="${s.id}" ${s.id === selId ? "selected" : ""}>${esc(s.name)}（${esc(s.venue)}）</option>`).join("");
+    }
+    function caseOptionsFor(stationId, caseId) {
+      const st = Z.stationById(db, stationId);
+      const cases = st ? st.cases : [];
+      return `<option value="">选择展柜</option>` +
+        cases.map(c => `<option value="${esc(c)}" ${c === caseId ? "selected" : ""}>${esc(c)}</option>`).join("");
+    }
+    function rebuildLegRows() {
+      const box = $("#legs");
+      if (!box || !legData.length) { if (box) box.innerHTML = '<div class="muted" style="margin-bottom:6px">尚未添加巡展站。</div>'; return; }
+      box.innerHTML = legData.map((leg, i) => `
+        <div class="rowline">
+          <div><label>巡展站</label>
+            <select data-i="${i}" data-k="stationId">${stationOptions(leg.stationId, leg.caseId)}</select></div>
+          <div><label>展柜</label><select data-i="${i}" data-k="caseId">${caseOptionsFor(leg.stationId, leg.caseId)}</select></div>
+          <div><label>上展日</label><input type="date" data-i="${i}" data-k="start" value="${esc(leg.start)}"></div>
+          <div><label>撤展日</label><input type="date" data-i="${i}" data-k="end" value="${esc(leg.end)}"></div>
+          <button type="button" class="secondary del" data-del="${i}">×</button>
+        </div>`).join("");
+    }
+    $("#legs").addEventListener("change", e => {
+      const t = e.target;
+      if (t.dataset.i != null) {
+        const i = Number(t.dataset.i);
+        if (t.dataset.k === "stationId") { legData[i].stationId = t.value; legData[i].caseId = ""; rebuildLegRows(); }
+        else legData[i][t.dataset.k] = t.value;
+      }
+    });
+    $("#legs").addEventListener("click", e => {
+      if (e.target.dataset.del != null) { legData.splice(Number(e.target.dataset.del), 1); rebuildLegRows(); }
+    });
+    $("#addLeg").onclick = () => {
+      legData.push({ stationId: db.stations[0] ? db.stations[0].id : "", caseId: "", start: "", end: "" });
+      rebuildLegRows();
+    };
+
+    function renderForm() {
+      const selectable = marks.filter(m => Z.relicState(db.relics[m.id]).ok);
+      const sel = document.querySelector("#loanForm select[name=relicId]");
+      sel.innerHTML = selectable.length
+        ? selectable.map(m => {
+          const ext = db.relics[m.id];
+          return `<option value="${m.id}">${esc(m.code)} · ${esc(ext.accession)} · ${Z.gradeLabel(ext.grade)}</option>`;
+        }).join("")
+        : `<option value="">（没有可排遗物，先在左侧完成登记）</option>`;
+      const bsel = document.querySelector("#loanForm select[name=borrowerId]");
+      bsel.innerHTML = db.borrowers.map(b => `<option value="${b.id}">${esc(b.name)}</option>`).join("");
+      syncTransportText();
+      if (!legData.length) legData.push({ stationId: db.stations[0] ? db.stations[0].id : "", caseId: "", start: "", end: "" });
+      rebuildLegRows();
+    }
+    document.querySelector("#loanForm select[name=borrowerId]").onchange = () => {
+      const ta = document.querySelector("#loanForm textarea[name=transport]");
+      ta.value = ""; syncTransportText();
+    };
+
+    function showMsg(text, ok) {
+      const m = $("#msg");
+      m.textContent = text;
+      m.className = "msg show " + (ok ? "ok" : "err");
+    }
+
+    $("#loanForm").onsubmit = e => {
+      e.preventDefault();
+      const f = new FormData(e.target);
+      const relicId = f.get("relicId");
+      const borrowerId = f.get("borrowerId");
+      const st = relicId ? Z.relicState(db.relics[relicId]) : { ok: false, reasons: ["未选择遗物"] };
+      if (!st.ok) return showMsg("遗物留在待处理，不能排期：" + st.reasons.join("、"), false);
+      const transport = f.get("transport").trim();
+      if (!transport) return showMsg("运输条件未填写确认。", false);
+      if (!f.get("transportConfirmed")) return showMsg("必须勾选运输条件已确认，才能排期。", false);
+      const returnDate = f.get("returnDate");
+      const shipDate = f.get("shipDate");
+      const legs = Z.clone(legData);
+      for (const leg of legs) {
+        if (!leg.stationId || !leg.caseId || !leg.start || !leg.end)
+          return showMsg("每一站都要选展柜并填上展日、撤展日。", false);
+        if (leg.start > leg.end) return showMsg("存在上展日晚于撤展日的站。", false);
+      }
+      for (let i = 1; i < legs.length; i++) {
+        if (legs[i - 1].end > legs[i].start)
+          return showMsg(`第 ${i} 站撤展日晚于第 ${i + 1} 站上展日，请理顺巡展顺序。`, false);
+        if (legs[i].stationId === legs[i - 1].stationId)
+          return showMsg("同一巡展站重复出现，请合并为一段。", false);
+      }
+      if (shipDate && legs[0] && shipDate > legs[0].start) return showMsg("启运日不得晚于首站上展日。", false);
+      if (legs.length && returnDate < legs[legs.length - 1].end) return showMsg("归还日不得早于末站撤展日。", false);
+
+      /* 同一展柜日期相撞 → 不排 */
+      const conflicts = Z.findConflicts(db, legs, null);
+      if (conflicts.length) {
+        const lines = conflicts.map(c => {
+          const a = Z.stationById(db, c.leg.stationId);
+          const other = c.other;
+          const ob = Z.stationById(db, other.stationId);
+          const who = c.loan ? "（被借展「" + esc(loanTitle(c.loan)) + "」占用）" : "（本单两站相撞）";
+          return `· ${a.name} 展柜 ${c.leg.caseId}：${c.leg.start}～${c.leg.end} 与 ${ob.name} 展柜 ${other.caseId} ${other.start}～${other.end} 相撞${who}`;
+        });
+        return showMsg("展柜档期相撞，本单不予排期：\n" + lines.join("\n"), false);
+      }
+
+      db.loans.push({
+        id: Z.uid(), relicId, borrowerId, transport,
+        shipDate, returnDate, legs,
+        status: "scheduled", handovers: [], amendments: [],
+        createdAt: new Date().toISOString()
+      });
+      legData.length = 0;
+      e.target.reset();
+      persist(); render();
+      showMsg("排期成功。启运前可在下方登记启运。", true);
+    };
+
+    /* ---------- 当前借展 ---------- */
+    function loanTitle(loan) {
+      const m = marks.find(x => x.id === loan.relicId);
+      const ext = db.relics[loan.relicId] || {};
+      return (m ? m.code : "遗物") + (ext.accession ? " · " + ext.accession : "");
+    }
+    function statusPill(s) {
+      return { scheduled: ["待启运", "hold"], shipped: ["启运中", "ship"], returned: ["已归还", "done"] }[s] || [s, ""];
+    }
+    function renderLoans() {
+      $("#loanList").innerHTML = db.loans.length ? db.loans.map(loan => {
+        const b = Z.borrowerById(db, loan.borrowerId);
+        const [slabel, scls] = statusPill(loan.status);
+        const ho = Z.latestHandover(loan);
+        return `<div class="loan">
+          <h3>${esc(loanTitle(loan))} <span class="pill ${scls}">${slabel}</span></h3>
+          <div class="muted">借展单位：${b ? esc(b.name) : "（已删除）"}　启运 ${esc(loan.shipDate)}　归还 ${esc(loan.returnDate)}</div>
+          <div class="muted">运输条件：${esc(loan.transport)}</div>
+          <div>${loan.legs.map(l => {
+            const st = Z.stationById(db, l.stationId);
+            return `<div class="legline">${st ? esc(st.name) : "（站点已删除）"} · 展柜 <b>${esc(l.caseId)}</b> · ${l.start} 至 ${l.end}</div>`;
+          }).join("")}</div>
+          <div>
+            ${loan.status === "scheduled"
+              ? `<button class="tiny" onclick="markShipped('${loan.id}')">登记启运 / 交接</button>`
+              : ""}
+            ${loan.status === "shipped"
+              ? `<button class="tiny warn" onclick="toggleAmend('${loan.id}')">调整归还日 / 展柜</button>
+                 <button class="tiny secondary" onclick="markReturned('${loan.id}')">确认归还</button>`
+              : ""}
+          </div>
+          ${ho ? `<div class="muted">最近交接：${Z.fmt(ho.at)}　押运人 ${esc(ho.courier)}　${esc(ho.note || "")}</div>` : ""}
+          <div id="amend-${loan.id}">${renderAmendForm(loan)}</div>
+          ${renderHistory(loan)}
+        </div>`;
+      }).join("") : '<div class="muted">暂无借展。</div>';
+    }
+
+    function renderHistory(loan) {
+      const items = [];
+      loan.handovers.forEach(h => items.push(
+        `<div>交接记录 · ${Z.fmt(h.at)} · 押运人 ${esc(h.courier)} · ${esc(h.note || "")}</div>`));
+      loan.amendments.forEach(a => items.push(
+        `<div>调整留档 · ${Z.fmt(a.at)} · ${esc(a.by)}<br>${(a.changes || []).map(esc).join("<br>")}</div>`));
+      if (!items.length) return "";
+      return `<div class="history muted">${items.join("")}</div>`;
+    }
+
+    function renderAmendForm(loan) {
+      if (editingAmendment !== loan.id) return "";
+      return `<div style="border:1px solid #d7a06e;border-radius:8px;padding:10px;margin-top:6px;background:#fdf8f3">
+        <label class="muted">原交接记录保留不动；修改后押运人在“排期档案”可见新安排。仅可调整展柜与归还日。</label>
+        ${loan.legs.map((l, i) => {
+          const st = Z.stationById(db, l.stationId);
+          return `<div class="grid2" style="margin-top:6px">
+            <div><label>${esc(st ? st.name : "巡展站")} · 新展柜（原 ${esc(l.caseId)}）</label>
+              <select id="am-case-${loan.id}-${i}">${caseOptionsFor(l.stationId, l.caseId)}</select></div>
+            <div><label>新撤展日（原 ${l.end}）</label>
+              <input type="date" id="am-end-${loan.id}-${i}" value="${esc(l.end)}"></div>
+          </div>`;
+        }).join("")}
+        <div class="grid2">
+          <div><label>新归还日（原 ${esc(loan.returnDate)}）</label>
+            <input type="date" id="am-return-${loan.id}" value="${esc(loan.returnDate)}"></div>
+          <div><label>调整操作人</label><input id="am-by-${loan.id}" placeholder="姓名 / 工号"></div>
+        </div>
+        <label>调整说明</label><input id="am-note-${loan.id}" placeholder="例如 宁波站展厅检修换柜">
+        <div style="margin-top:8px;display:flex;gap:8px">
+          <button class="tiny" onclick="saveAmendment('${loan.id}')">保存调整并留档</button>
+          <button type="button" class="tiny secondary" onclick="toggleAmend(null)">取消</button>
+        </div>
+      </div>`;
+    }
+
+    window.toggleAmend = id => { editingAmendment = (editingAmendment === id ? null : id); renderLoans(); };
+
+    window.markShipped = id => {
+      const loan = db.loans.find(l => l.id === id);
+      if (!loan || loan.status !== "scheduled") return;
+      const courier = prompt("登记启运交接：请输入押运人姓名/工号");
+      if (courier == null) return;
+      if (!courier.trim()) { alert("押运人为必填，未登记启运。"); return; }
+      const note = prompt("交接备注（装车件数、车况等，可留空）") || "";
+      loan.status = "shipped";
+      loan.handovers.push({
+        at: new Date().toISOString(), courier: courier.trim(), note,
+        snapshot: Z.snapshot(loan)
+      });
+      persist(); render();
+    };
+
+    window.markReturned = id => {
+      const loan = db.loans.find(l => l.id === id);
+      if (!loan || loan.status !== "shipped") return;
+      const courier = prompt("归还交接：请输入接收/押运人姓名");
+      if (courier == null) return;
+      loan.status = "returned";
+      loan.handovers.push({ at: new Date().toISOString(), courier: courier.trim(), note: "归还入库交接", snapshot: Z.snapshot(loan) });
+      persist(); render();
+    };
+
+    window.saveAmendment = id => {
+      const loan = db.loans.find(l => l.id === id);
+      if (!loan || loan.status !== "shipped") return;
+      const by = $("#am-by-" + id).value.trim();
+      if (!by) { alert("请填写调整操作人。"); return; }
+      const note = $("#am-note-" + id).value.trim();
+      const newLegs = loan.legs.map((l, i) => ({
+        stationId: l.stationId,
+        caseId: $("#am-case-" + id + "-" + i).value || l.caseId,
+        start: l.start,
+        end: $("#am-end-" + id + "-" + i).value || l.end
+      }));
+      const newReturn = $("#am-return-" + id).value;
+      for (const l of newLegs) if (l.start > l.end) { alert("撤展日不能早于上展日。"); return; }
+      if (newReturn < newLegs[newLegs.length - 1].end) { alert("归还日不能早于末站撤展日。"); return; }
+
+      /* 换柜同样要过档期相撞检查（排除本单自身） */
+      const conflicts = Z.findConflicts(db, newLegs, loan.id);
+      if (conflicts.length) {
+        alert("新安排仍与其他借展展柜相撞：\n" + conflicts.map(c =>
+          (Z.stationById(db, c.leg.stationId) || {}).name + " 展柜 " + c.leg.caseId + " " + c.leg.start + "~" + c.leg.end
+        ).join("\n"));
+        return;
+      }
+      const before = Z.snapshot(loan);
+      const after = { legs: newLegs, returnDate: newReturn };
+      const changes = Z.changesText(db, before, after);
+      if (!changes.length) { alert("没有检测到展柜或归还日变化。"); return; }
+      loan.legs = newLegs;
+      loan.returnDate = newReturn;
+      loan.amendments.push({
+        at: new Date().toISOString(), by, note, changes,
+        before
+      });
+      editingAmendment = null;
+      persist(); render();
+    };
+
+    render();
+  </script>
+</body>
+</html>

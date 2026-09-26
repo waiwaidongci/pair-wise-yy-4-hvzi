@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>排期档案 · 沉船出水物巡展</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Arial, "PingFang SC", sans-serif; background: #e8f2f3; color: #183035; }
+    header { padding: 18px 24px; background: #fff; border-bottom: 1px solid #c9dadc; }
+    h1 { margin: 0 0 2px; font-size: 24px; }
+    h2 { margin: 4px 0 10px; font-size: 17px; }
+    label { color: #5c7378; font-size: 13px; }
+    select { border: 1px solid #c9dadc; border-radius: 6px; padding: 8px; font: inherit; background: #fff; min-width: 220px; }
+    .muted { color: #5c7378; font-size: 13px; }
+    .sitenav { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+    .navlink { padding: 5px 11px; border: 1px solid #c9dadc; border-radius: 999px; font-size: 13px; color: #1d6c78; text-decoration: none; background: #f4fafa; }
+    .navlink.active { background: #1d6c78; color: #fff; border-color: #1d6c78; }
+    .wrap { display: grid; gap: 16px; padding: 16px; }
+    .panel { background: #fff; border: 1px solid #c9dadc; border-radius: 8px; padding: 14px; }
+    .pill { display: inline-block; padding: 2px 8px; border: 1px solid #c9dadc; border-radius: 999px; font-size: 12px; }
+    .pill.ok { background: #e8f5ec; border-color: #9bc7a6; color: #2a6b3b; }
+    .pill.hold { background: #fbeee4; border-color: #d7a06e; color: #8a4a1d; }
+    .pill.ship { background: #e6f0f7; border-color: #8fb4cf; color: #25506e; }
+    .pill.done { background: #ececec; border-color: #b9b9b9; color: #555; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 10px; }
+    .loan { border: 1px solid #d7e4e5; border-radius: 8px; padding: 12px; display: grid; gap: 6px; }
+    .loan h3 { margin: 0; font-size: 15px; }
+    .legline { border-left: 3px solid #1d6c78; padding: 2px 0 2px 10px; margin: 2px 0; font-size: 13px; }
+    .history { border-top: 1px dashed #c9dadc; margin-top: 6px; padding-top: 6px; font-size: 13px; display: grid; gap: 4px; }
+    .rec { background: #f7fafb; border-radius: 6px; padding: 6px 8px; }
+    .newtag { color: #8a4a1d; font-weight: 800; }
+    .courierBox { background: #f2f8fa; border: 1px solid #b9d6dd; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>排期档案 · 沉船出水物巡展</h1>
+    <div class="muted">启运交接记录与调整留档统一存档；押运人可按姓名查看当前最新安排。</div>
+    <nav id="siteNav"></nav>
+  </header>
+
+  <main class="wrap">
+    <section class="panel courierBox">
+      <h2>押运人视图（当前最新安排）</h2>
+      <label>选择押运人</label><br>
+      <select id="courierSelect"></select>
+      <div id="courierView" class="cards" style="margin-top:10px"></div>
+    </section>
+
+    <section class="panel">
+      <h2>全部借展档案（交接记录 + 调整留档，只读）</h2>
+      <div id="archive" class="cards"></div>
+    </section>
+  </main>
+
+  <script src="nav.js"></script>
+  <script src="store.js"></script>
+  <script>
+    const Z = window.ZFL;
+    const marks = Z.loadMarks();
+    const db = Z.loadDB();
+    const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+    function loanTitle(loan) {
+      const m = marks.find(x => x.id === loan.relicId);
+      const ext = db.relics[loan.relicId] || {};
+      return (m ? m.code : "遗物") + (ext.accession ? " · " + ext.accession : "");
+    }
+    const statusInfo = {
+      scheduled: ["待启运", "hold"], shipped: ["启运中", "ship"], returned: ["已归还", "done"]
+    };
+    function legLine(leg) {
+      const st = Z.stationById(db, leg.stationId);
+      return `<div class="legline">${st ? esc(st.name) : "（站点已删除）"} · 展柜 <b>${esc(leg.caseId)}</b> · ${leg.start} 至 ${leg.end}</div>`;
+    }
+    function historyBlock(loan) {
+      const recs = [];
+      (loan.handovers || []).forEach(h => {
+        recs.push(`<div class="rec">交接记录 · ${Z.fmt(h.at)}<br>押运人：${esc(h.courier)}　备注：${esc(h.note || "—")}
+          <div class="muted" style="margin-top:4px">交接时安排：${(h.snapshot && h.snapshot.legs || []).map(l => {
+            const st = Z.stationById(db, l.stationId);
+            return esc((st ? st.name : "?") + " " + l.caseId + " " + l.start + "~" + l.end);
+          }).join("；") || "—"}　归还日 ${esc(h.snapshot && h.snapshot.returnDate || "—")}</div>
+        </div>`);
+      });
+      (loan.amendments || []).forEach(a => {
+        recs.push(`<div class="rec">调整留档 · ${Z.fmt(a.at)} · 操作人 ${esc(a.by)}　${esc(a.note || "")}<br>
+          ${(a.changes || []).map(c => "· " + esc(c)).join("<br>")}</div>`);
+      });
+      if (!recs.length) return '<div class="muted">尚无交接与调整记录。</div>';
+      return `<div class="history">${recs.join("")}</div>`;
+    }
+    function loanCard(loan) {
+      const b = Z.borrowerById(db, loan.borrowerId);
+      const [slabel, scls] = statusInfo[loan.status] || [loan.status, ""];
+      return `<div class="loan">
+        <h3>${esc(loanTitle(loan))} <span class="pill ${scls}">${slabel}</span></h3>
+        <div class="muted">借展单位：${b ? esc(b.name) : "（已删除）"}　启运 ${esc(loan.shipDate)}</div>
+        <div><span class="muted">当前安排（归还日 ${esc(loan.returnDate)}）：</span>${loan.legs.map(legLine).join("")}</div>
+        <div class="muted">运输条件：${esc(loan.transport)}</div>
+        ${historyBlock(loan)}
+      </div>`;
+    }
+
+    document.querySelector("#archive").innerHTML =
+      db.loans.length ? db.loans.map(loanCard).join("") : '<div class="muted">暂无借展档案。</div>';
+
+    /* 押运人视图：取其参与启运的借展，展示最新安排并标注调整 */
+    const couriers = [...new Set(db.loans.flatMap(l => (l.handovers || []).map(h => h.courier)))];
+    const sel = document.querySelector("#courierSelect");
+    if (couriers.length) {
+      sel.innerHTML = couriers.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
+      sel.onchange = renderCourier;
+      renderCourier();
+    } else {
+      sel.innerHTML = '<option value="">（尚无已启运交接，暂无押运人）</option>';
+      sel.disabled = true;
+      document.querySelector("#courierView").innerHTML = '<div class="muted">借展在“借展排期”页登记启运后，押运人即可在此看到新安排。</div>';
+    }
+
+    function renderCourier() {
+      const name = sel.value;
+      const mine = db.loans.filter(l => (l.handovers || []).some(h => h.courier === name));
+      document.querySelector("#courierView").innerHTML = mine.length ? mine.map(loan => {
+        const amended = (loan.amendments || []).length > 0;
+        return `<div class="loan" style="border-color:#8fb4cf">
+          <h3>${esc(loanTitle(loan))} ${amended ? '<span class="newtag">★ 安排已调整，以此为准</span>' : '<span class="pill ship">安排未变</span>'}</h3>
+          <div><span class="muted">最新安排（归还日 ${esc(loan.returnDate)}）：</span>${loan.legs.map(legLine).join("")}</div>
+          ${amended ? `<div class="muted">调整：${loan.amendments.map(a => esc(a.changes.join("；"))).join("<br>")}</div>` : ""}
+          <div class="muted">原交接记录仍在下方档案中留档，可对照。</div>
+        </div>`;
+      }).join("") : '<div class="muted">该押运人名下暂无借展。</div>';
+    }
+  </script>
+</body>
+</html>
